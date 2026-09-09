@@ -1,0 +1,29 @@
+name: Bug report
+description: Report unexpected behavior in firestore-database.
+title: "bug: "
+labels: [bug]
+body:
+    - type: markdown
+      attributes:
+          value: Thanks for helping improve firestore-database.
+    - type: input
+      id: version
+      attributes:
+          label: Package version
+          placeholder: 0.1.0
+      validations:
+          required: true
+    - type: textarea
+      id: reproduction
+      attributes:
+          label: Minimal reproduction
+          description: Include the relevant schema, operation, expected behavior, and actual behavior.
+      validations:
+          required: true
+    - type: textarea
+      id: environment
+      attributes:
+          label: Environment
+          placeholder: Node.js version, Firebase Admin SDK version, Firestore emulator or production
+      validations:
+          required: true

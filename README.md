@@ -146,3 +146,9 @@ The integration suite uses the real Firebase Admin SDK and Firestore emulator
 to verify transaction ordering, generated IDs, lease contention, and migration
 resume behavior. It does not validate production IAM policies or every
 production index configuration.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development, pull-request, and
+release guidance. Security vulnerabilities must be reported privately as
+described in [SECURITY.md](./SECURITY.md).

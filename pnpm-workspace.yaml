@@ -2,4 +2,4 @@ allowBuilds:
     "@firebase/util": true
     esbuild: true
     protobufjs: true
-    re2: set this to true or false
+    re2: true
