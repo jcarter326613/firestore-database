@@ -109,6 +109,3 @@ jobs:
         with:
           pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
           create-github-releases: true
-        env:
-          # Only set NPM_TOKEN for the initial publish; subsequent releases use OIDC.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
