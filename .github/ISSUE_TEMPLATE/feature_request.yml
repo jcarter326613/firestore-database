@@ -3,20 +3,20 @@ description: Propose an improvement to firestore-database.
 title: "feature: "
 labels: [enhancement]
 body:
-  - type: textarea
-    id: problem
-    attributes:
-      label: Problem
-      description: Describe the user problem this would solve.
-    validations:
-      required: true
-  - type: textarea
-    id: proposal
-    attributes:
-      label: Proposed solution
-    validations:
-      required: true
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives considered
+    - type: textarea
+      id: problem
+      attributes:
+          label: Problem
+          description: Describe the user problem this would solve.
+      validations:
+          required: true
+    - type: textarea
+      id: proposal
+      attributes:
+          label: Proposed solution
+      validations:
+          required: true
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: Alternatives considered

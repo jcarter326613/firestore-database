@@ -13,31 +13,41 @@ pnpm add firestore-database
 ## Collections
 
 ```ts
+import {
+    createFirestoreDatabase,
+    defineCollection,
+    defineDatabaseMigrations,
+    migrationChecksum,
+} from "firestore-database"
+import { z } from "zod"
+
 const collections = {
-  recipes: defineCollection({
-    path: "recipes",
-    schema: z.object({
-      title: z.string(),
-      normalizedTitle: z.string().optional(),
-      ingredientIds: z.array(z.string()).optional(),
-    }).strict(),
-  }),
-  ingredients: defineCollection({
-    path: "ingredients",
-    schema: z.object({ name: z.string() }).strict(),
-  }),
-};
+    recipes: defineCollection({
+        path: "recipes",
+        schema: z
+            .object({
+                title: z.string(),
+                normalizedTitle: z.string().optional(),
+                ingredientIds: z.array(z.string()).optional(),
+            })
+            .strict(),
+    }),
+    ingredients: defineCollection({
+        path: "ingredients",
+        schema: z.object({ name: z.string() }).strict(),
+    }),
+}
 
 const database = createFirestoreDatabase({
-  collections,
-  databaseId: process.env.FIRESTORE_DATABASE_ID!,
-});
+    collections,
+    databaseId: process.env.FIRESTORE_DATABASE_ID!,
+})
 
-const recipe = await database.collections.recipes.create({ title: "Bread" });
+const recipe = await database.collections.recipes.create({ title: "Bread" })
 await database.collections.recipes.update(recipe.id, (current) => ({
-  ...current,
-  title: "Sourdough bread",
-}));
+    ...current,
+    title: "Sourdough bread",
+}))
 ```
 
 Firestore generates document IDs. Reads return `{ id, data }`; the ID is the
@@ -61,39 +71,42 @@ schemas.
 
 ```ts
 const migrations = defineDatabaseMigrations<typeof collections>([
-  {
-    id: "202609071200-split-ingredients",
-    description: "Move recipe ingredients into their own documents",
-    checksum: migrationChecksum("split ingredients v1"),
-    async run(migration) {
-      await migration.forEachDocument({
-        collection: "recipes",
-        name: "split-ingredients",
-        async change(recipe, { newId }) {
-          const ingredientId = newId("ingredients");
+    {
+        id: "202609071200-split-ingredients",
+        description: "Move recipe ingredients into their own documents",
+        checksum: migrationChecksum("split ingredients v1"),
+        async run(migration) {
+            await migration.forEachDocument({
+                collection: "recipes",
+                name: "split-ingredients",
+                async change(recipe, { newId }) {
+                    const ingredientId = newId("ingredients")
 
-          return [
-            {
-              type: "set",
-              collection: "recipes",
-              id: recipe.id,
-              data: {
-                ...recipe.data,
-                ingredientIds: [...(recipe.data.ingredientIds ?? []), ingredientId],
-              },
-            },
-            {
-              type: "create",
-              collection: "ingredients",
-              id: ingredientId,
-              data: { name: "Flour" },
-            },
-          ];
+                    return [
+                        {
+                            type: "set",
+                            collection: "recipes",
+                            id: recipe.id,
+                            data: {
+                                ...recipe.data,
+                                ingredientIds: [
+                                    ...(recipe.data.ingredientIds ?? []),
+                                    ingredientId,
+                                ],
+                            },
+                        },
+                        {
+                            type: "create",
+                            collection: "ingredients",
+                            id: ingredientId,
+                            data: { name: "Flour" },
+                        },
+                    ]
+                },
+            })
         },
-      });
     },
-  },
-]);
+])
 ```
 
 `newId` obtains a Firestore auto-ID without writing. For one source document,
@@ -110,7 +123,7 @@ touch the same source document.
 Run migrations after deploying application code that can read both shapes:
 
 ```ts
-await database.migrate();
+await database.migrate()
 ```
 
 Never edit a completed migration ID or checksum. The migration ledger records
