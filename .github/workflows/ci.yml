@@ -28,4 +28,5 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm test
       - run: pnpm run build
-      - run: pnpm changeset status --since=origin/main
+      - if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
+        run: pnpm changeset status --since=origin/main
