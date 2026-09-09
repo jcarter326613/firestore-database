@@ -1,6 +1,6 @@
 {
   "name": "firestore-database",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A type-safe Firestore database package for modeling, querying, and migrating application data with Firebase.",
   "license": "Unlicense",
   "keywords": [
