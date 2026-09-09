@@ -1,36 +1,39 @@
 {
-  "name": "firestore-database",
-  "version": "0.1.0",
-  "type": "module",
-  "packageManager": "pnpm@11.23.0",
-  "engines": {
-    "node": ">=22"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+    "name": "firestore-database",
+    "version": "0.1.0",
+    "type": "module",
+    "packageManager": "pnpm@11.23.0",
+    "engines": {
+        "node": ">=22"
+    },
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc --project tsconfig.json",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "test": "vitest run --exclude test/integration/**",
+        "test:integration": "firebase emulators:exec --only firestore --project firestore-database-integration \"GCLOUD_PROJECT=firestore-database-integration pnpm test:integration:run\"",
+        "test:integration:run": "vitest run test/integration",
+        "typecheck": "tsc --noEmit --project tsconfig.json"
+    },
+    "dependencies": {
+        "firebase-admin": "^13.6.0",
+        "zod": "^4.1.5"
+    },
+    "devDependencies": {
+        "@types/node": "^22.15.3",
+        "firebase-tools": "^14.27.0",
+        "prettier": "^3.9.6",
+        "typescript": "^5.8.3",
+        "vitest": "^3.2.4"
     }
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
-  "scripts": {
-    "build": "tsc --project tsconfig.json",
-    "test": "vitest run --exclude test/integration/**",
-    "test:integration": "firebase emulators:exec --only firestore --project firestore-database-integration \"GCLOUD_PROJECT=firestore-database-integration pnpm test:integration:run\"",
-    "test:integration:run": "vitest run test/integration",
-    "typecheck": "tsc --noEmit --project tsconfig.json"
-  },
-  "dependencies": {
-    "firebase-admin": "^13.6.0",
-    "zod": "^4.1.5"
-  },
-  "devDependencies": {
-    "@types/node": "^22.15.3",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.4",
-    "firebase-tools": "^14.27.0"
-  }
 }
