@@ -13,6 +13,14 @@ pnpm add firestore-database
 ## Collections
 
 ```ts
+import {
+  createFirestoreDatabase,
+  defineCollection,
+  defineDatabaseMigrations,
+  migrationChecksum,
+} from "firestore-database";
+import { z } from "zod";
+
 const collections = {
   recipes: defineCollection({
     path: "recipes",
