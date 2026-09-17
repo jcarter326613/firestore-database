@@ -7,6 +7,7 @@ import {
     createFirestoreDatabase,
     defineCollection,
     defineDatabaseMigrations,
+    DocumentValidationError,
     migrationChecksum,
 } from "../../src/index.js"
 import type { DatabaseMigration } from "../../src/index.js"
@@ -270,5 +271,82 @@ describe.sequential("Firestore emulator integration", () => {
         expect(
             recipes.docs.map((document) => document.data().__migrationVersion),
         ).toEqual([THIRD_MIGRATION_ID, THIRD_MIGRATION_ID])
+    })
+
+    it("patches only the named fields and preserves the rest", async () => {
+        const created = await database.collections.recipes.create({
+            ingredientIds: ["keep"],
+            name: "Patchable",
+        })
+        const before = await firestore
+            .collection("integration-recipes")
+            .doc(created.id)
+            .get()
+
+        await database.collections.recipes.patch(created.id, () => ({
+            noteCount: 7,
+        }))
+
+        const stored = await database.collections.recipes.get(created.id)
+        expect(stored?.data).toMatchObject({
+            ingredientIds: ["keep"],
+            name: "Patchable",
+            noteCount: 7,
+        })
+        const after = await firestore
+            .collection("integration-recipes")
+            .doc(created.id)
+            .get()
+        expect(after.data()?.__migrationVersion).toBe(
+            before.data()?.__migrationVersion,
+        )
+    })
+
+    it("keeps concurrent patches that touch different fields", async () => {
+        const created = await database.collections.recipes.create({
+            name: "Concurrent",
+        })
+
+        await Promise.all([
+            database.collections.recipes.patch(created.id, () => ({
+                noteCount: 3,
+            })),
+            database.collections.recipes.patch(created.id, () => ({
+                migrated: true,
+            })),
+        ])
+
+        const stored = await database.collections.recipes.get(created.id)
+        expect(stored?.data).toMatchObject({
+            migrated: true,
+            name: "Concurrent",
+            noteCount: 3,
+        })
+    })
+
+    it("rejects patch values that do not match the schema", async () => {
+        const created = await database.collections.recipes.create({
+            name: "Validated",
+        })
+
+        await expect(
+            database.collections.recipes.patch(
+                created.id,
+                () => ({ name: 42 }) as never,
+            ),
+        ).rejects.toBeInstanceOf(DocumentValidationError)
+
+        const stored = await database.collections.recipes.get(created.id)
+        expect(stored?.data.name).toBe("Validated")
+    })
+
+    it("rejects patching a missing document", async () => {
+        await expect(
+            database.collections.recipes.patch("does-not-exist", () => ({
+                name: "Example",
+            })),
+        ).rejects.toThrow(
+            'Document "integration-recipes/does-not-exist" does not exist.',
+        )
     })
 })

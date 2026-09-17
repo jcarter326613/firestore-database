@@ -85,6 +85,8 @@ export interface StoredDocument<T> {
     id: string
 }
 
+export type FieldUpdate<T extends object> = Partial<T>
+
 type FieldName<T> = Extract<keyof T, string>
 
 export type QueryFilter<T> = {
@@ -110,9 +112,8 @@ export interface DatabaseCollection<T extends object> {
     create(data: T): Promise<StoredDocument<T>>
     delete(id: string): Promise<void>
     get(id: string): Promise<StoredDocument<T> | undefined>
+    patch(id: string, updater: (current: T) => FieldUpdate<T>): Promise<void>
     query(options?: QueryOptions<T>): Promise<StoredDocument<T>[]>
-    set(id: string, data: T): Promise<void>
-    update(id: string, updater: (current: T) => T): Promise<T>
 }
 
 export type DatabaseCollections<Definitions extends CollectionDefinitions> = {
@@ -238,6 +239,32 @@ function visible(data: DocumentData): DocumentData {
     return document
 }
 
+function parseFields<T extends object>(
+    schema: VersionedDocumentSchema<T>,
+    fields: FieldUpdate<T>,
+    path: string,
+    id: string,
+): FieldUpdate<T> {
+    if (DOCUMENT_VERSION in fields) {
+        throw new ReservedDocumentPropertyError()
+    }
+    const parsed: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(fields)) {
+        const fieldSchema = schema.shape[key]
+        if (fieldSchema === undefined) {
+            throw new Error(
+                `Field "${key}" is not part of the "${path}" schema.`,
+            )
+        }
+        const result = (fieldSchema as z.ZodType).safeParse(value)
+        if (!result.success) {
+            throw new DocumentValidationError(path, id, result.error)
+        }
+        parsed[key] = result.data
+    }
+    return parsed as FieldUpdate<T>
+}
+
 function buildQuery<T extends object>(
     firestore: Firestore,
     path: string,
@@ -320,32 +347,8 @@ function collectionFacade<T extends object>(
                 ? parseRead(snapshot as QueryDocumentSnapshot<DocumentData>)
                 : undefined
         },
-        async query(options) {
-            const query = buildQuery(firestore, definition.path, options)
-            const snapshot =
-                transaction === undefined
-                    ? await query.get()
-                    : await transaction.get(query)
-            return snapshot.docs.map(parseRead)
-        },
-        async set(id, data) {
-            const validated = parseWrite(id, data)
+        async patch(id, updater) {
             await withTransaction(async (activeTransaction) => {
-                const snapshot = await activeTransaction.get(collection.doc(id))
-                const version = snapshot.exists
-                    ? String(
-                          (snapshot.data() as DocumentData)[DOCUMENT_VERSION] ??
-                              "",
-                      )
-                    : currentVersion
-                activeTransaction.set(
-                    collection.doc(id),
-                    stored(validated, version),
-                )
-            })
-        },
-        async update(id, updater) {
-            return withTransaction(async (activeTransaction) => {
                 const reference = collection.doc(id)
                 const snapshot = await activeTransaction.get(reference)
                 if (!snapshot.exists) {
@@ -353,20 +356,28 @@ function collectionFacade<T extends object>(
                         `Document "${definition.path}/${id}" does not exist.`,
                     )
                 }
-                const updated = parseWrite(
+                const current = parseRead(
+                    snapshot as QueryDocumentSnapshot<DocumentData>,
+                ).data
+                const fields = parseFields(
+                    definition.schema,
+                    updater(current),
+                    definition.path,
                     id,
-                    updater(
-                        parseRead(
-                            snapshot as QueryDocumentSnapshot<DocumentData>,
-                        ).data,
-                    ),
                 )
-                const version = String(
-                    (snapshot.data() as DocumentData)[DOCUMENT_VERSION] ?? "",
-                )
-                activeTransaction.set(reference, stored(updated, version))
-                return updated
+                parseWrite(id, { ...current, ...fields })
+                if (Object.keys(fields).length > 0) {
+                    activeTransaction.update(reference, fields as DocumentData)
+                }
             })
+        },
+        async query(options) {
+            const query = buildQuery(firestore, definition.path, options)
+            const snapshot =
+                transaction === undefined
+                    ? await query.get()
+                    : await transaction.get(query)
+            return snapshot.docs.map(parseRead)
         },
     }
 }

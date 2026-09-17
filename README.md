@@ -44,23 +44,27 @@ const database = createFirestoreDatabase({
 })
 
 const recipe = await database.collections.recipes.create({ title: "Bread" })
-await database.collections.recipes.update(recipe.id, (current) => ({
-    ...current,
+await database.collections.recipes.patch(recipe.id, () => ({
     title: "Sourdough bread",
 }))
 ```
 
 Firestore generates document IDs. Reads return `{ id, data }`; the ID is the
-document identity used for subsequent `get`, `set`, `update`, and `delete`
-calls, not a field in the Zod schema.
+document identity used for subsequent `get`, `patch`, and `delete` calls, not a
+field in the Zod schema. There is no whole-document write: `create` writes a new
+document and `patch` updates named fields.
+
+`patch` runs an updater inside a Firestore transaction. The updater receives the
+current document and returns only the fields to change; the write touches only
+those fields, so concurrent patches to different fields do not overwrite each
+other and the hidden `__migrationVersion` is preserved. Returning no fields is a
+no-op. The updater may run more than once when the transaction retries, so it
+must be pure.
 
 The facade strips stored fields outside the running schema before returning a
 document. Release engineers must keep schemas compatible while old and new
 application versions overlap: retain old fields and make newly introduced
-fields optional until their storage migration has completed. Normal application
-writes replace a document with the running schema shape. Older code can remove
-newer fields it does not know, so deployments must prevent unsafe version
-overlap.
+fields optional until their storage migration has completed.
 
 ## Migrations
 
@@ -143,9 +147,9 @@ pnpm test:integration
 ```
 
 The integration suite uses the real Firebase Admin SDK and Firestore emulator
-to verify transaction ordering, generated IDs, lease contention, and migration
-resume behavior. It does not validate production IAM policies or every
-production index configuration.
+to verify transaction ordering, generated IDs, field-scoped patches, lease
+contention, and migration resume behavior. It does not validate production IAM
+policies or every production index configuration.
 
 ## Contributing
 

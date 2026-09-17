@@ -50,6 +50,10 @@ const fakeFirestore = vi.hoisted(() => {
                     ref: { key: string },
                     data: Record<string, unknown>,
                 ) => void
+                update: (
+                    ref: { key: string },
+                    data: Record<string, unknown>,
+                ) => void
             }) => Promise<Result>,
         ): Promise<Result> =>
             operation({
@@ -64,6 +68,11 @@ const fakeFirestore = vi.hoisted(() => {
                 get: (ref) => ref.get(),
                 set(ref, data) {
                     documents.set(ref.key, data)
+                },
+                update(ref, data) {
+                    const existing = documents.get(ref.key)
+                    if (!existing) throw new Error("document does not exist")
+                    documents.set(ref.key, { ...existing, ...data })
                 },
             }),
     }
@@ -142,31 +151,126 @@ describe("Firestore database facade", () => {
         })
     })
 
-    it("uses the running schema shape when replacing an older document", async () => {
+    it("patches only the named fields, preserving others and the migration version", async () => {
         fakeFirestore.documents.clear()
         fakeFirestore.documents.set("examples/legacy", {
             __migrationVersion: "202609071200-old-shape",
-            futureOnly: "removed by this application's write",
             name: "Before",
+            note: "keep me",
         })
 
-        await database().collections.examples.set("legacy", { name: "After" })
+        await database().collections.examples.patch("legacy", () => ({
+            name: "After",
+        }))
 
         expect(fakeFirestore.documents.get("examples/legacy")).toEqual({
             __migrationVersion: "202609071200-old-shape",
             name: "After",
+            note: "keep me",
         })
+    })
+
+    it("passes the current document to the patch updater", async () => {
+        fakeFirestore.documents.clear()
+        fakeFirestore.documents.set("examples/current", {
+            __migrationVersion: "",
+            name: "Before",
+        })
+
+        let observed: unknown
+        await database().collections.examples.patch("current", (current) => {
+            observed = current
+            return { note: "added" }
+        })
+
+        expect(observed).toEqual({ name: "Before" })
+    })
+
+    it("does not write when a patch updater returns no fields", async () => {
+        fakeFirestore.documents.clear()
+        fakeFirestore.documents.set("examples/unchanged", {
+            __migrationVersion: "202609071200-old-shape",
+            name: "Before",
+        })
+
+        await database().collections.examples.patch("unchanged", () => ({}))
+
+        expect(fakeFirestore.documents.get("examples/unchanged")).toEqual({
+            __migrationVersion: "202609071200-old-shape",
+            name: "Before",
+        })
+    })
+
+    it("rejects patching a document that does not exist", async () => {
+        fakeFirestore.documents.clear()
+
+        await expect(
+            database().collections.examples.patch("missing", () => ({
+                name: "Example",
+            })),
+        ).rejects.toThrow('Document "examples/missing" does not exist.')
     })
 
     it("validates writes and reserves the hidden migration version", async () => {
         await expect(
-            database().collections.examples.set("invalid", { name: "" }),
+            database().collections.examples.create({ name: "" }),
         ).rejects.toBeInstanceOf(DocumentValidationError)
         await expect(
-            database().collections.examples.set("reserved", {
+            database().collections.examples.create({
                 __migrationVersion: "nope",
                 name: "Example",
             } as never),
+        ).rejects.toBeInstanceOf(ReservedDocumentPropertyError)
+    })
+
+    it("rejects patch fields that do not validate", async () => {
+        fakeFirestore.documents.clear()
+        fakeFirestore.documents.set("examples/validated", {
+            __migrationVersion: "",
+            name: "Before",
+        })
+
+        await expect(
+            database().collections.examples.patch("validated", () => ({
+                name: "",
+            })),
+        ).rejects.toBeInstanceOf(DocumentValidationError)
+
+        expect(fakeFirestore.documents.get("examples/validated")).toEqual({
+            __migrationVersion: "",
+            name: "Before",
+        })
+    })
+
+    it("rejects patch fields the schema does not define", async () => {
+        fakeFirestore.documents.clear()
+        fakeFirestore.documents.set("examples/unknown", {
+            __migrationVersion: "",
+            name: "Before",
+        })
+
+        await expect(
+            database().collections.examples.patch(
+                "unknown",
+                () => ({ futureOnly: "nope" }) as never,
+            ),
+        ).rejects.toThrow(
+            'Field "futureOnly" is not part of the "examples" schema.',
+        )
+    })
+
+    it("reserves the hidden migration version in a patch", async () => {
+        fakeFirestore.documents.clear()
+        fakeFirestore.documents.set("examples/reserved", {
+            __migrationVersion: "",
+            name: "Before",
+        })
+
+        await expect(
+            database().collections.examples.patch(
+                "reserved",
+                () => ({ __migrationVersion: "nope" }) as never,
+            ),
         ).rejects.toBeInstanceOf(ReservedDocumentPropertyError)
     })
 })

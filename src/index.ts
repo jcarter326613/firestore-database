@@ -20,6 +20,7 @@ export type {
     DatabaseMigration,
     DatabaseMigrationContext,
     DatabaseReadCollections,
+    FieldUpdate,
     FirestoreDatabase,
     FirestoreDatabaseOptions,
     QueryFilter,
