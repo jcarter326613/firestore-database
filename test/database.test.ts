@@ -111,8 +111,35 @@ const collections = {
     }),
 }
 
+const variantCollections = {
+    variants: defineCollection({
+        path: "variants",
+        schema: z.discriminatedUnion("type", [
+            z
+                .object({
+                    title: z.string().min(1),
+                    type: z.literal("note"),
+                })
+                .strict(),
+            z
+                .object({
+                    servings: z.number().int().positive(),
+                    type: z.literal("recipe"),
+                })
+                .strict(),
+        ]),
+    }),
+}
+
 function database() {
     return createFirestoreDatabase({ collections, databaseId: "test" })
+}
+
+function variantDatabase() {
+    return createFirestoreDatabase({
+        collections: variantCollections,
+        databaseId: "variants",
+    })
 }
 
 describe("Firestore database facade", () => {
@@ -132,6 +159,25 @@ describe("Firestore database facade", () => {
         ).toMatchObject({
             __migrationVersion: "",
             name: "Example",
+        })
+    })
+
+    it("accepts a discriminated union document schema", async () => {
+        fakeFirestore.documents.clear()
+
+        const created = await variantDatabase().collections.variants.create({
+            title: "Example",
+            type: "note",
+        })
+        await variantDatabase().collections.variants.patch(created.id, () => ({
+            title: "Updated",
+        }))
+
+        await expect(
+            variantDatabase().collections.variants.get(created.id),
+        ).resolves.toEqual({
+            data: { title: "Updated", type: "note" },
+            id: created.id,
         })
     })
 
@@ -254,9 +300,7 @@ describe("Firestore database facade", () => {
                 "unknown",
                 () => ({ futureOnly: "nope" }) as never,
             ),
-        ).rejects.toThrow(
-            'Field "futureOnly" is not part of the "examples" schema.',
-        )
+        ).rejects.toBeInstanceOf(DocumentValidationError)
     })
 
     it("reserves the hidden migration version in a patch", async () => {

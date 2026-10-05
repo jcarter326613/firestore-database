@@ -49,6 +49,9 @@ await database.collections.recipes.patch(recipe.id, () => ({
 }))
 ```
 
+Collection schemas may use any Zod schema whose output is an object, including
+discriminated unions for variant documents.
+
 Firestore generates document IDs. Reads return `{ id, data }`; the ID is the
 document identity used for subsequent `get`, `patch`, and `delete` calls, not a
 field in the Zod schema. There is no whole-document write: `create` writes a new
@@ -58,12 +61,14 @@ document and `patch` updates named fields.
 current document and returns only the fields to change; the write touches only
 those fields, so concurrent patches to different fields do not overwrite each
 other and the hidden `__migrationVersion` is preserved. Returning no fields is a
-no-op. The updater may run more than once when the transaction retries, so it
-must be pure.
+no-op. The merged document is validated before writing, so a patch cannot leave
+the document outside its schema. The updater may run more than once when the
+transaction retries, so it must be pure.
 
-The facade strips stored fields outside the running schema before returning a
-document. Release engineers must keep schemas compatible while old and new
-application versions overlap: retain old fields and make newly introduced
+Object schemas strip stored fields outside the running schema before returning a
+document. Other Zod schemas, including discriminated unions, validate the full
+visible document. Release engineers must keep schemas compatible while old and
+new application versions overlap: retain old fields and make newly introduced
 fields optional until their storage migration has completed.
 
 ## Migrations
