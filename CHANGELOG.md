@@ -1,5 +1,11 @@
 # firestore-database
 
+## 0.3.0
+
+### Minor Changes
+
+- e667e17: Allow collections to use any object-output Zod schema, including discriminated unions. Patches now validate the complete merged document before writing changed fields. Remove the obsolete `VersionedDocumentSchema` export.
+
 ## 0.2.0
 
 ### Minor Changes
