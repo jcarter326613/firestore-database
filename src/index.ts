@@ -14,6 +14,7 @@ export { migrationChecksum } from "./registry.js"
 export type {
     CollectionDefinition,
     CollectionDocument,
+    DocumentSchema,
     DatabaseCollection,
     DatabaseCollections,
     DatabaseDocumentOperation,
@@ -27,6 +28,5 @@ export type {
     QueryOptions,
     QueryOrder,
     StoredDocument,
-    VersionedDocumentSchema,
 } from "./database.js"
 export type { MigrationRunResult } from "./types.js"

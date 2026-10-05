@@ -43,21 +43,16 @@ export class ReservedDocumentPropertyError extends Error {
     }
 }
 
-export interface VersionedDocumentSchema<
-    Output extends object = object,
-> extends z.ZodType<Output> {
-    readonly shape: Record<string, unknown>
-    strip(): z.ZodType<Output>
-}
+export type DocumentSchema<Output extends object = object> = z.ZodType<Output>
 
 export interface CollectionDefinition<
-    Schema extends VersionedDocumentSchema = VersionedDocumentSchema,
+    Schema extends DocumentSchema = DocumentSchema,
 > {
     path: string
     schema: Schema
 }
 
-export function defineCollection<Schema extends VersionedDocumentSchema>(
+export function defineCollection<Schema extends DocumentSchema>(
     definition: CollectionDefinition<Schema>,
 ): CollectionDefinition<Schema> {
     if (!definition.path || definition.path.includes("/")) {
@@ -65,7 +60,10 @@ export function defineCollection<Schema extends VersionedDocumentSchema>(
             "Collection paths must be a single, non-empty collection ID.",
         )
     }
-    if (DOCUMENT_VERSION in definition.schema.shape) {
+    if (
+        definition.schema instanceof z.ZodObject &&
+        DOCUMENT_VERSION in definition.schema.shape
+    ) {
         throw new ReservedDocumentPropertyError()
     }
     return Object.freeze({ ...definition })
@@ -239,30 +237,12 @@ function visible(data: DocumentData): DocumentData {
     return document
 }
 
-function parseFields<T extends object>(
-    schema: VersionedDocumentSchema<T>,
-    fields: FieldUpdate<T>,
-    path: string,
-    id: string,
-): FieldUpdate<T> {
-    if (DOCUMENT_VERSION in fields) {
-        throw new ReservedDocumentPropertyError()
-    }
-    const parsed: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(fields)) {
-        const fieldSchema = schema.shape[key]
-        if (fieldSchema === undefined) {
-            throw new Error(
-                `Field "${key}" is not part of the "${path}" schema.`,
-            )
-        }
-        const result = (fieldSchema as z.ZodType).safeParse(value)
-        if (!result.success) {
-            throw new DocumentValidationError(path, id, result.error)
-        }
-        parsed[key] = result.data
-    }
-    return parsed as FieldUpdate<T>
+function schemaForRead<T extends object>(
+    schema: DocumentSchema<T>,
+): DocumentSchema<T> {
+    return schema instanceof z.ZodObject
+        ? (schema.strip() as DocumentSchema<T>)
+        : schema
 }
 
 function buildQuery<T extends object>(
@@ -288,7 +268,7 @@ function buildQuery<T extends object>(
 
 function collectionFacade<T extends object>(
     firestore: Firestore,
-    definition: CollectionDefinition<VersionedDocumentSchema<T>>,
+    definition: CollectionDefinition<DocumentSchema<T>>,
     currentVersion: string,
     transaction?: Transaction,
 ): DatabaseCollection<T> {
@@ -297,7 +277,7 @@ function collectionFacade<T extends object>(
         snapshot: QueryDocumentSnapshot<DocumentData>,
     ): StoredDocument<T> => ({
         data: parse(
-            definition.schema.strip(),
+            schemaForRead(definition.schema),
             visible(snapshot.data()),
             definition.path,
             snapshot.id,
@@ -359,15 +339,19 @@ function collectionFacade<T extends object>(
                 const current = parseRead(
                     snapshot as QueryDocumentSnapshot<DocumentData>,
                 ).data
-                const fields = parseFields(
-                    definition.schema,
-                    updater(current),
-                    definition.path,
-                    id,
-                )
-                parseWrite(id, { ...current, ...fields })
+                const fields = updater(current)
+                if (DOCUMENT_VERSION in fields) {
+                    throw new ReservedDocumentPropertyError()
+                }
+                const validated = parseWrite(id, { ...current, ...fields })
                 if (Object.keys(fields).length > 0) {
-                    activeTransaction.update(reference, fields as DocumentData)
+                    const normalizedFields = Object.fromEntries(
+                        Object.keys(fields).map((key) => [
+                            key,
+                            validated[key as keyof T],
+                        ]),
+                    )
+                    activeTransaction.update(reference, normalizedFields)
                 }
             })
         },
@@ -414,9 +398,7 @@ export function createFirestoreDatabase<
                 name,
                 collectionFacade(
                     firestore,
-                    definition as CollectionDefinition<
-                        VersionedDocumentSchema<object>
-                    >,
+                    definition as CollectionDefinition<DocumentSchema<object>>,
                     currentVersion,
                     transaction,
                 ),
@@ -449,7 +431,7 @@ export function createFirestoreDatabase<
                             ) {
                                 const document = {
                                     data: parse(
-                                        definition.schema.strip(),
+                                        schemaForRead(definition.schema),
                                         visible(snapshot.data()),
                                         definition.path,
                                         snapshot.id,
