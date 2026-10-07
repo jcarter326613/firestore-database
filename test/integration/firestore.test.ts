@@ -20,6 +20,7 @@ const DATABASE_ID = "(default)"
 const FIRST_MIGRATION_ID = "202609071200-split-ingredients"
 const SECOND_MIGRATION_ID = "202609071300-lease-test"
 const THIRD_MIGRATION_ID = "202609071400-resume-test"
+const FOURTH_MIGRATION_ID = "202609071500-pruned-registry"
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
     throw new Error(
@@ -271,6 +272,75 @@ describe.sequential("Firestore emulator integration", () => {
         expect(
             recipes.docs.map((document) => document.data().__migrationVersion),
         ).toEqual([THIRD_MIGRATION_ID, THIRD_MIGRATION_ID])
+    })
+
+    it("runs a later migration after completed migrations are pruned", async () => {
+        const prunedRegistryMigration = {
+            checksum: migrationChecksum("integration pruned registry test v1"),
+            description: "Run after pruned migrations",
+            id: FOURTH_MIGRATION_ID,
+            run: async () => undefined,
+        }
+
+        await expect(
+            runMigrations(firestore, [prunedRegistryMigration]),
+        ).resolves.toMatchObject({
+            applied: [FOURTH_MIGRATION_ID],
+        })
+    })
+
+    it("skips configured migrations before completed history", async () => {
+        let runCalls = 0
+
+        await expect(
+            runMigrations(firestore, [
+                {
+                    checksum: migrationChecksum(
+                        "integration old migration test v1",
+                    ),
+                    description: "A historical migration",
+                    id: "202609071450-out-of-order",
+                    async run() {
+                        runCalls += 1
+                    },
+                },
+            ]),
+        ).resolves.toMatchObject({ applied: [] })
+        expect(runCalls).toBe(0)
+    })
+
+    it("rejects pruning a failed migration", async () => {
+        const failedMigrationId = "202609071600-failed"
+        await firestore.collection("__firestore_migrations").doc("state").set({
+            latestMigrationId: FOURTH_MIGRATION_ID,
+            migrationInProgress: failedMigrationId,
+        })
+        await firestore
+            .collection("__firestore_migrations")
+            .doc("state")
+            .collection("ledger")
+            .doc(failedMigrationId)
+            .set({
+                checksum: migrationChecksum("integration failed migration v1"),
+                status: "failed",
+            })
+
+        await expect(
+            runMigrations(firestore, [
+                {
+                    checksum: migrationChecksum(
+                        "integration changed failed migration v1",
+                    ),
+                    description: "A changed failed migration",
+                    id: failedMigrationId,
+                    run: async () => undefined,
+                },
+            ]),
+        ).rejects.toThrow(`Migration "${failedMigrationId}" has been modified.`)
+
+        await expect(runMigrations(firestore, [])).rejects.toThrow(
+            `Incomplete migration "${failedMigrationId}" is absent`,
+        )
     })
 
     it("patches only the named fields and preserves the rest", async () => {

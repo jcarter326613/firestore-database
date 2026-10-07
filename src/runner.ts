@@ -54,6 +54,11 @@ interface LedgerDocument {
     status?: unknown
 }
 
+interface MigrationStateDocument {
+    latestMigrationId?: unknown
+    migrationInProgress?: unknown
+}
+
 function configuration(options: MigrationRunnerOptions): RunnerConfiguration {
     const leaseDurationMs = options.leaseDurationMs ?? DEFAULT_LEASE_DURATION_MS
     const metadataCollection =
@@ -514,48 +519,64 @@ export async function runMigrations(
     const applied: string[] = []
 
     try {
-        const ledgerSnapshot = await references.ledger
-            .orderBy(FieldPath.documentId())
-            .get()
-        const ledger = new Map(
-            ledgerSnapshot.docs.map((document) => [
-                document.id,
-                document.data() as LedgerDocument,
-            ]),
-        )
+        const stateSnapshot = await references.state.get()
+        const state = stateSnapshot.data() as MigrationStateDocument | undefined
+        const latestMigrationId =
+            typeof state?.latestMigrationId === "string"
+                ? state.latestMigrationId
+                : undefined
+        const migrationInProgress =
+            typeof state?.migrationInProgress === "string"
+                ? state.migrationInProgress
+                : undefined
 
-        for (const [id, entry] of ledger) {
-            const migration = registry.find((candidate) => candidate.id === id)
+        if (migrationInProgress !== undefined) {
+            const migration = registry.find(
+                (candidate) => candidate.id === migrationInProgress,
+            )
             if (!migration) {
                 throw new Error(
-                    `Applied migration "${id}" is absent from the current registry.`,
+                    `Incomplete migration "${migrationInProgress}" is absent from the current registry.`,
                 )
             }
             if (
-                entry.status === "completed" &&
-                entry.checksum !== migration.checksum
+                latestMigrationId !== undefined &&
+                migration.id <= latestMigrationId
             ) {
-                throw new Error(`Applied migration "${id}" has been modified.`)
+                throw new Error(
+                    `Incomplete migration "${migration.id}" does not sort after completed migration "${latestMigrationId}".`,
+                )
             }
-        }
 
-        let foundPending = false
-        for (const migration of registry) {
-            const entry = ledger.get(migration.id)
-            if (entry?.status === "completed") {
-                if (foundPending) {
-                    throw new Error(
-                        `Migration "${migration.id}" completed after an incomplete migration.`,
-                    )
-                }
-            } else {
-                foundPending = true
+            const ledgerSnapshot = await references.ledger
+                .doc(migration.id)
+                .get()
+            const entry = ledgerSnapshot.data() as LedgerDocument | undefined
+            if (entry?.status !== "running" && entry?.status !== "failed") {
+                throw new Error(
+                    `Migration "${migration.id}" is not incomplete.`,
+                )
+            }
+            if (entry.checksum !== migration.checksum) {
+                throw new Error(
+                    `Migration "${migration.id}" has been modified.`,
+                )
             }
         }
 
         const pending = registry.filter(
-            (migration) => ledger.get(migration.id)?.status !== "completed",
+            (migration) =>
+                latestMigrationId === undefined ||
+                migration.id > latestMigrationId,
         )
+        if (
+            migrationInProgress !== undefined &&
+            pending[0]?.id !== migrationInProgress
+        ) {
+            throw new Error(
+                `Incomplete migration "${migrationInProgress}" must be the next pending migration.`,
+            )
+        }
 
         await firestore.runTransaction(async (transaction) => {
             const leaseSnapshot = await transaction.get(references.lease)
@@ -658,7 +679,8 @@ export async function runMigrations(
                 references.state,
                 {
                     formatVersion: LEDGER_FORMAT_VERSION,
-                    latestMigrationId: registry.at(-1)?.id ?? null,
+                    latestMigrationId:
+                        pending.at(-1)?.id ?? latestMigrationId ?? null,
                     migrationInProgress: null,
                     registryFingerprint: fingerprint,
                     targetRegistryFingerprint: FieldValue.delete(),
