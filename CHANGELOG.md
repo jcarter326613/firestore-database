@@ -1,5 +1,11 @@
 # firestore-database
 
+## 0.4.0
+
+### Minor Changes
+
+- 4ad6026: Allow completed migrations to be removed from the configured registry while preserving incomplete-migration safeguards.
+
 ## 0.3.0
 
 ### Minor Changes
