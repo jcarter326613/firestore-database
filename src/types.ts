@@ -36,7 +36,10 @@ export interface MigrationContext {
 }
 
 export interface FirestoreMigration {
-    /** Stable sortable identifier, conventionally `YYYYMMDDHHMM-description`. */
+    /**
+     * Stable sortable identifier, conventionally `YYYYMMDDHHMM-description`.
+     * IDs at or before the latest completed migration are treated as historical.
+     */
     id: string
     description: string
     /** SHA-256 of the immutable migration source or its canonical contents. */

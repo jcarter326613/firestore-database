@@ -135,9 +135,13 @@ Run migrations after deploying application code that can read both shapes:
 await database.migrate()
 ```
 
-Never edit a completed migration ID or checksum. The migration ledger records
-failures and completed document-processing steps so rerunning the same release
-continues safely.
+Never modify or remove a migration that has started but is not completed. The
+migration ledger records failures and document-processing steps so it can resume
+safely. After a migration is recorded as completed in production, its definition
+may be removed from a later registry. The runner keeps only the latest completed
+migration ID in its working state and treats configured definitions at or before
+that ID as historical no-ops. Use monotonically increasing IDs for new
+migrations.
 
 ## Testing
 
