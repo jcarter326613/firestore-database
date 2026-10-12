@@ -1,5 +1,11 @@
 # firestore-database
 
+## 0.5.0
+
+### Minor Changes
+
+- 2a85a0a: Add validated batch document reads to collection facades.
+
 ## 0.4.0
 
 ### Minor Changes
