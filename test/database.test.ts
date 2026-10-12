@@ -3,6 +3,7 @@ import { z } from "zod"
 
 const fakeFirestore = vi.hoisted(() => {
     const documents = new Map<string, Record<string, unknown>>()
+    const getAllRequests: string[][] = []
     let generatedId = 0
     const reference = (collectionPath: string, id: string) => {
         const key = `${collectionPath}/${id}`
@@ -38,6 +39,12 @@ const fakeFirestore = vi.hoisted(() => {
     })
     const firestore = {
         collection: (collectionPath: string) => query(collectionPath),
+        getAll: async (
+            ...references: Array<{ get: () => Promise<unknown>; id: string }>
+        ) => {
+            getAllRequests.push(references.map((reference) => reference.id))
+            return Promise.all(references.map((reference) => reference.get()))
+        },
         runTransaction: async <Result>(
             operation: (transaction: {
                 create: (
@@ -46,6 +53,9 @@ const fakeFirestore = vi.hoisted(() => {
                 ) => void
                 delete: (ref: { key: string }) => void
                 get: (ref: { get: () => Promise<unknown> }) => Promise<unknown>
+                getAll: (
+                    ...references: Array<{ get: () => Promise<unknown> }>
+                ) => Promise<unknown[]>
                 set: (
                     ref: { key: string },
                     data: Record<string, unknown>,
@@ -66,6 +76,8 @@ const fakeFirestore = vi.hoisted(() => {
                     documents.delete(ref.key)
                 },
                 get: (ref) => ref.get(),
+                getAll: (...references) =>
+                    Promise.all(references.map((reference) => reference.get())),
                 set(ref, data) {
                     documents.set(ref.key, data)
                 },
@@ -76,7 +88,7 @@ const fakeFirestore = vi.hoisted(() => {
                 },
             }),
     }
-    return { documents, firestore }
+    return { documents, firestore, getAllRequests }
 })
 
 vi.mock("firebase-admin/app", () => ({
@@ -195,6 +207,50 @@ describe("Firestore database facade", () => {
             data: { name: "Example" },
             id: "future",
         })
+    })
+
+    it("reads multiple existing documents", async () => {
+        fakeFirestore.documents.clear()
+        fakeFirestore.getAllRequests.length = 0
+        fakeFirestore.documents.set("examples/first", {
+            __migrationVersion: "",
+            name: "First",
+        })
+        fakeFirestore.documents.set("examples/second", {
+            __migrationVersion: "",
+            name: "Second",
+        })
+
+        await expect(
+            database().collections.examples.getMany([
+                "first",
+                "missing",
+                "second",
+            ]),
+        ).resolves.toEqual([
+            { data: { name: "First" }, id: "first" },
+            { data: { name: "Second" }, id: "second" },
+        ])
+    })
+
+    it("batches document reads in groups of 30", async () => {
+        fakeFirestore.documents.clear()
+        fakeFirestore.getAllRequests.length = 0
+        const ids = Array.from({ length: 31 }, (_, index) => `example-${index}`)
+        ids.forEach((id) => {
+            fakeFirestore.documents.set(`examples/${id}`, {
+                __migrationVersion: "",
+                name: id,
+            })
+        })
+
+        const documents = await database().collections.examples.getMany(ids)
+
+        expect(documents.map((document) => document.id)).toEqual(ids)
+        expect(fakeFirestore.getAllRequests).toEqual([
+            ids.slice(0, 30),
+            ids.slice(30),
+        ])
     })
 
     it("patches only the named fields, preserving others and the migration version", async () => {

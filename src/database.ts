@@ -20,6 +20,7 @@ import type {
 } from "./types.js"
 
 const DOCUMENT_VERSION = "__migrationVersion"
+const BATCH_READ_LIMIT = 30
 
 export class DocumentValidationError extends Error {
     constructor(
@@ -110,6 +111,7 @@ export interface DatabaseCollection<T extends object> {
     create(data: T): Promise<StoredDocument<T>>
     delete(id: string): Promise<void>
     get(id: string): Promise<StoredDocument<T> | undefined>
+    getMany(ids: readonly string[]): Promise<StoredDocument<T>[]>
     patch(id: string, updater: (current: T) => FieldUpdate<T>): Promise<void>
     query(options?: QueryOptions<T>): Promise<StoredDocument<T>[]>
 }
@@ -124,7 +126,7 @@ export type DatabaseReadCollections<Definitions extends CollectionDefinitions> =
     {
         [Name in keyof Definitions]: Pick<
             DatabaseCollection<DocumentFor<Definitions[Name]>>,
-            "get" | "query"
+            "get" | "getMany" | "query"
         >
     }
 
@@ -326,6 +328,32 @@ function collectionFacade<T extends object>(
             return snapshot.exists
                 ? parseRead(snapshot as QueryDocumentSnapshot<DocumentData>)
                 : undefined
+        },
+        async getMany(ids) {
+            if (ids.length === 0) return []
+            const batches: string[][] = []
+            for (let index = 0; index < ids.length; index += BATCH_READ_LIMIT) {
+                batches.push(ids.slice(index, index + BATCH_READ_LIMIT))
+            }
+            const snapshots = (
+                await Promise.all(
+                    batches.map((batch) => {
+                        const references = batch.map((id) => collection.doc(id))
+                        return transaction === undefined
+                            ? firestore.getAll(...references)
+                            : transaction.getAll(...references)
+                    }),
+                )
+            ).flat()
+            return snapshots.flatMap((snapshot) =>
+                snapshot.exists
+                    ? [
+                          parseRead(
+                              snapshot as QueryDocumentSnapshot<DocumentData>,
+                          ),
+                      ]
+                    : [],
+            )
         },
         async patch(id, updater) {
             await withTransaction(async (activeTransaction) => {
